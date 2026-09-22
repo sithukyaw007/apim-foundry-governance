@@ -9,6 +9,8 @@ crash.log
 *.tfvars
 *.tfvars.*
 !terraform.tfvars.example
+# Terraform backend settings (contains the real state storage account name)
+backend.hcl
 .env
 .vscode
 

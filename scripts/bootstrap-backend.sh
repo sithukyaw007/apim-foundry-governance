@@ -122,35 +122,27 @@ for attempt in $(seq 1 20); do
   sleep 15
 done
 
-# Auto-update infra/providers.tf backend "azurerm" block with the values above.
+# Write the backend settings to infra/backend.hcl (gitignored) rather than into providers.tf,
+# so a real storage account name never gets committed. Use it with:
+#   terraform init -backend-config=backend.hcl
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROVIDERS_TF="$SCRIPT_DIR/../infra/providers.tf"
-if [[ -f "$PROVIDERS_TF" ]] && grep -q 'backend "azurerm"' "$PROVIDERS_TF"; then
-  # Portable in-place edit: GNU sed wants `-i`, BSD/macOS sed wants `-i ''`. Writing to a temp
-  # file and moving it back avoids the difference entirely. `-E` must precede the script so it
-  # is never mistaken for the backup suffix.
-  tmp="$(mktemp)"
-  sed -E \
-    -e "s|^([[:space:]]*resource_group_name[[:space:]]*=[[:space:]]*).*|\1\"$BACKEND_RG\"|" \
-    -e "s|^([[:space:]]*storage_account_name[[:space:]]*=[[:space:]]*).*|\1\"$account\"|" \
-    -e "s|^([[:space:]]*container_name[[:space:]]*=[[:space:]]*).*|\1\"tfstate\"|" \
-    -e "s|^([[:space:]]*key[[:space:]]*=[[:space:]]*).*|\1\"$STATE_KEY\"|" \
-    "$PROVIDERS_TF" > "$tmp"
-  mv "$tmp" "$PROVIDERS_TF"
+BACKEND_HCL="$SCRIPT_DIR/../infra/backend.hcl"
 
-  # Verify the rewrite actually landed; a silent no-op here would send `terraform init` at the
-  # wrong (or a nonexistent) state backend.
-  if ! grep -q "\"$account\"" "$PROVIDERS_TF"; then
-    echo "ERROR: failed to write the backend block into $PROVIDERS_TF; update it manually." >&2
-    exit 1
-  fi
-  echo "Updated backend block in $PROVIDERS_TF."
-else
-  echo "WARNING: could not find $PROVIDERS_TF with a backend \"azurerm\" block; update it manually." >&2
+cat > "$BACKEND_HCL" <<EOF
+resource_group_name  = "$BACKEND_RG"
+storage_account_name = "$account"
+container_name       = "tfstate"
+key                  = "$STATE_KEY"
+use_azuread_auth     = true
+EOF
+
+if [[ ! -s "$BACKEND_HCL" ]]; then
+  echo "ERROR: failed to write $BACKEND_HCL." >&2
+  exit 1
 fi
 
-echo "Backend ready. Values written to infra/providers.tf backend block:"
-echo "  resource_group_name  = \"$BACKEND_RG\""
-echo "  storage_account_name = \"$account\""
-echo "  container_name       = \"tfstate\""
-echo "  key                  = \"$STATE_KEY\""
+echo "Backend ready. Settings written to infra/backend.hcl:"
+cat "$BACKEND_HCL"
+echo
+echo "Next:"
+echo "  cd infra && terraform init -backend-config=backend.hcl"

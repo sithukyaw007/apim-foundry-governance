@@ -127,7 +127,10 @@ export state_key=ai-gateway-eus2.tfstate
   --state-key $state_key
 ```
 
-Creates an eastus2 resource group + storage account for remote state (Entra auth, public blob access blocked).
+Creates an eastus2 resource group + storage account for remote state (Entra auth, public blob access
+blocked), then writes the settings to `infra/backend.hcl`. That file is **gitignored**, so the real
+storage account name never enters version control — `infra/providers.tf` carries only an empty
+`backend "azurerm" {}` partial configuration.
 
 > **Governed tenants:** some organizations apply a policy that forces
 > `publicNetworkAccess = Disabled` on every storage account, which makes the state container
@@ -157,8 +160,11 @@ don't exist yet, and the worker Job / Admin UI app are count-gated on these vari
 
 ```bash
 cd infra
-terraform init
-# If you are moving an existing state from another backend, run `terraform init -migrate-state` instead.
+terraform init -backend-config=backend.hcl
+# `backend.hcl` is written by scripts/bootstrap-backend.sh and is gitignored, so your state
+# storage account name is never committed. providers.tf holds only an empty `backend "azurerm" {}`
+# partial configuration.
+# If you are moving an existing state from another backend, add -migrate-state.
 terraform apply
 ```
 
