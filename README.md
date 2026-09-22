@@ -302,6 +302,48 @@ export COPILOT_PROVIDER_WIRE_MODEL=gpt-5.4
 - Azure OpenAI / Foundry bill per token, and a monthly Cost Management budget only **alerts** — it
   does not hard-stop spend. **Clean up when idle:** `terraform destroy` in `infra/`.
 
+### What actually costs money when idle
+
+The model deployments are **GlobalStandard (PAYG)**, so they cost **nothing** while idle — they bill
+per token. The standing infrastructure is what accrues. Rough eastus2 PAYG order of magnitude:
+
+| Resource | Relative idle cost | Can it be stopped? |
+|---|---|---|
+| Azure Bastion (Basic) | highest | No — billed hourly until deleted |
+| Jumpbox VM | high | Deallocate, or delete with `enable_jumpbox = false` |
+| APIM Developer_1 | high | No stop/start; only deleting stops billing |
+| Private endpoints (×4) | moderate | Only by deleting |
+| Cosmos DB (provisioned RU/s) | moderate | Switch to serverless, or delete |
+| Admin UI Container App | low–moderate | `min_replicas` is pinned to 1 (see below) |
+| Public IPs, ACR Basic, Log Analytics | low | — |
+
+### Hibernating without destroying
+
+Most of the idle cost is the **jumpbox + Bastion**, which exist only to seed Cosmos from inside the
+VNet. Once `id=global` and `id=pricing` are seeded they are no longer needed, so the stack can be
+hibernated while leaving the gateway fully serving traffic:
+
+```hcl
+# infra/terraform.tfvars
+enable_jumpbox = false   # removes Bastion, VM, NIC, both subnets (the dominant idle cost)
+admin_ui_image = ""      # removes the Admin UI Container App; the image stays in ACR
+```
+
+```bash
+terraform apply
+```
+
+This keeps APIM, both model backends, Cosmos (and its seeded documents), the config-sync job, and
+all observability intact. Restore by setting both values back and re-applying — the jumpbox
+run-command re-seeds idempotently.
+
+> Do **not** try to save the Admin UI cost by setting `min_replicas = 0`. The Container App has no
+> HTTP wake rule, so scaling to zero makes the ingress return `404 Container App is stopped` on the
+> first request. Use the `admin_ui_image = ""` count gate instead.
+
+For zero spend, `terraform destroy` in `infra/`. Everything here is reproducible from this repo, and
+the Cosmos documents are re-seeded automatically on the next apply.
+
 ## Security model
 
 - Backends: private endpoints + **key auth disabled**. APIM accesses them with **managed identity** +
