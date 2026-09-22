@@ -73,6 +73,9 @@ cost-based budget downgrade — all managed from a self-service Admin UI.
 |---|---|
 | `bootstrap-backend.sh` | Creates the Terraform remote state backend (storage account + RG) once per subscription, then rewrites the `backend` block in `infra/providers.tf`. |
 | `app-registration.sh` | Creates the Entra ID objects the Admin UI needs (admin security group, BFF API app registration, SPA public client) and prints the four Terraform variable values. |
+| `shutdown.sh` | Hibernates the stack to cut idle cost — removes the jumpbox + Bastion and the Admin UI, leaving the gateway serving traffic. Supports `--dry-run` / `--yes`. |
+| `resume.sh` | Inverse of `shutdown.sh` — re-creates the jumpbox + Bastion and the Admin UI, and re-seeds Cosmos idempotently. Supports `--dry-run` / `--yes` / `--admin-ui-image`. |
+| `lib/tfvars.sh` | Shared helpers used by the two scripts above to read/write keys in `terraform.tfvars` portably (no GNU-only `sed -i`). |
 | `seed-config.sh` | Builds the authoritative global config document (`id=global`: allowed models · token limits) — prints JSON to show how to seed (for local preview). |
 | `seed-cosmos-jumpbox.sh` | Upserts the global config document directly into Cosmos using the jumpbox managed identity (bash + REST only, no dependencies). |
 | `seed_cosmos.py` | Python version of the same global config seed (`azure-cosmos` + `DefaultAzureCredential`). |
@@ -323,19 +326,27 @@ Most of the idle cost is the **jumpbox + Bastion**, which exist only to seed Cos
 VNet. Once `id=global` and `id=pricing` are seeded they are no longer needed, so the stack can be
 hibernated while leaving the gateway fully serving traffic:
 
+```bash
+./scripts/shutdown.sh              # preview first with --dry-run
+./scripts/resume.sh                # bring the jumpbox + Admin UI back
+```
+
+Both scripts take `--dry-run` (plan only) and `--yes` (skip the prompt). `shutdown.sh` records the
+Admin UI image it removed so `resume.sh` restores exactly what was running; override with
+`--admin-ui-image REF`. Re-creating the jumpbox needs `jumpbox_admin_password` in
+`infra/terraform.tfvars` (or `TF_VAR_jumpbox_admin_password`), which `resume.sh` checks up front.
+
+They edit `infra/terraform.tfvars` rather than passing `-var` overrides, so the declared desired
+state matches reality — otherwise a later bare `terraform apply` would silently resurrect the
+expensive resources. Equivalent to setting:
+
 ```hcl
-# infra/terraform.tfvars
 enable_jumpbox = false   # removes Bastion, VM, NIC, both subnets (the dominant idle cost)
 admin_ui_image = ""      # removes the Admin UI Container App; the image stays in ACR
 ```
 
-```bash
-terraform apply
-```
-
 This keeps APIM, both model backends, Cosmos (and its seeded documents), the config-sync job, and
-all observability intact. Restore by setting both values back and re-applying — the jumpbox
-run-command re-seeds idempotently.
+all observability intact. The jumpbox run-command re-seeds idempotently on resume.
 
 > Do **not** try to save the Admin UI cost by setting `min_replicas = 0`. The Container App has no
 > HTTP wake rule, so scaling to zero makes the ingress return `404 Container App is stopped` on the
