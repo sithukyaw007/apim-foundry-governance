@@ -20,12 +20,19 @@ terraform {
     }
   }
 
-  # Fill these from scripts/bootstrap-backend.ps1 output, then run `terraform init`.
+  # Remote state backend.
+  #
+  # NOTE: in a governed tenant (e.g. MCAPS) an Azure Policy can force
+  # `publicNetworkAccess = Disabled` on every storage account, which makes this container
+  # unreachable from an operator workstation. `scripts/bootstrap-backend.sh` detects that and can
+  # apply the sanctioned `SecurityControl=Ignore` exemption tag via --security-control-ignore.
+  # If neither is possible, comment this block out to fall back to local state
+  # (infra/terraform.tfstate is already covered by .gitignore), or run Terraform from the jumpbox.
   backend "azurerm" {
-    resource_group_name  = "rg-llmgw-tfstate-dev-koreacentral"
-    storage_account_name = "stllmgwtfstater9deyn"
+    resource_group_name  = "REPLACE_ME_RG"
+    storage_account_name = "REPLACE_ME"
     container_name       = "tfstate"
-    key                  = "llm-gateway.tfstate"
+    key                  = "ai-gateway-eus2.tfstate"
     use_azuread_auth     = true
   }
 }

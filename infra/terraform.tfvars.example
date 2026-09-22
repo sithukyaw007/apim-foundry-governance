@@ -10,12 +10,37 @@ apim_sku_name        = "Developer_1"
 # Cost guardrail (observability module)
 monthly_budget_amount = 200
 budget_alert_email    = "platform-team@example.com"
-budget_start_date     = "2026-06-01T00:00:00Z"
+# Must be the FIRST of a month, UTC, and not in the past when the budget is first created.
+# Azure rejects a past start date, so bump this to the current/next month before applying.
+budget_start_date = "2026-10-01T00:00:00Z"
 
-# eastus2 may restrict B-series VM sizes; use a D-series v7 for the optional jumpbox.
+# The variable default (Standard_B2s_v2) is NOT offered in eastus2; a D-series v7 is.
 jumpbox_vm_size = "Standard_D2s_v7"
 
 # App config
-enable_jumpbox         = true <- comment out if you do not want to provision a jumpbox
-jumpbox_admin_password = "<PASSWORD>" <- fill in if you want to provision a jumpbox else comment out
-apim_public            = true <- comment out if you want it to be private.
+# enable_jumpbox: set false (or omit) to skip the Bastion + jumpbox VM. The jumpbox is what
+# seeds the Cosmos config/pricing documents automatically during apply.
+enable_jumpbox = true
+
+# jumpbox_admin_password: required (min 12 chars) only when enable_jumpbox = true.
+# Do not commit a real password - supply it via TF_VAR_jumpbox_admin_password instead.
+jumpbox_admin_password = "<PASSWORD>"
+
+# apim_public: true publishes APIM in EXTERNAL VNet mode (public gateway VIP).
+# false (or omit) keeps it Internal / VNet-only. Changing this later RECREATES APIM,
+# so choose before the first apply.
+apim_public = true
+
+# admin_ui_public: true gives the Admin UI a public FQDN (still Entra + admin-group gated).
+# Immutable after the Container Apps environment is created.
+# admin_ui_public = true
+
+# --- Second apply only (leave commented for the first apply) ---
+# The images do not exist until `az acr build` runs, and the worker Job / Admin UI app are
+# count-gated on these being non-empty.
+# worker_image          = "<registry_login_server>/config-sync-worker:latest"
+# admin_ui_image        = "<registry_login_server>/admin-ui:latest"
+# entra_tenant_id       = "<entra tenant id>"
+# admin_group_object_id = "<entra security group object id>"
+# bff_api_audience      = "api://<bff app id>"
+# spa_client_id         = "<spa app id>"

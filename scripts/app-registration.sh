@@ -21,7 +21,7 @@ bff_obj_id=$(az ad app show --id "$bff_app_id" --query id -o tsv)
 az ad app update --id "$bff_app_id" --identifier-uris "api://$bff_app_id"
 
 # build the api object (scope + v2 access tokens) and PATCH via Graph
-scope_id=$(cat /proc/sys/kernel/random/uuid)
+scope_id=$(uuidgen | tr 'A-Z' 'a-z')
 cat > /tmp/bff-api.json <<EOF
 {
   "api": {

@@ -12,6 +12,11 @@ variable "name_suffix" {
   description = "Naming suffix (workload-env-region) appended to resource names."
 }
 
+variable "suffix" {
+  type        = string
+  description = "Deterministic per-deployment random suffix. APIM service names are GLOBALLY unique (they back <name>.azure-api.net), so this is required to avoid cross-tenant collisions - same pattern as Key Vault / Cosmos / ACR."
+}
+
 variable "resource_group_name" {
   type        = string
   description = "Name of the resource group in which the APIM instance is created."
@@ -184,7 +189,7 @@ variable "entra_team_claim" {
 }
 
 resource "azurerm_api_management" "apim" {
-  name                = "apim-${var.name_suffix}"
+  name                = "apim-${var.name_suffix}-${var.suffix}"
   resource_group_name = var.resource_group_name
   location            = var.location
   publisher_name      = var.publisher_name

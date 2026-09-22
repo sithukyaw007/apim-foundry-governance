@@ -99,6 +99,7 @@ module "jumpbox" {
 module "apim" {
   source                       = "./modules/apim"
   name_suffix                  = local.name_suffix
+  suffix                       = local.sfx
   resource_group_name          = azurerm_resource_group.rg.name
   location                     = var.location
   tags                         = local.tags

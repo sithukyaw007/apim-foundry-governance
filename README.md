@@ -71,15 +71,24 @@ cost-based budget downgrade — all managed from a self-service Admin UI.
 
 | File | One-line description |
 |---|---|
-| `bootstrap-backend.ps1` | Creates the Terraform remote state backend (storage account + RG) once per subscription. |
-| `seed-config.ps1` | Builds the authoritative global config document (`id=global`: allowed models · token limits) — prints JSON to show how to seed (for local preview). |
-| `seed-cosmos-jumpbox.ps1` | Upserts the global config document directly into Cosmos using the jumpbox managed identity (PowerShell only, no dependencies). |
+| `bootstrap-backend.sh` | Creates the Terraform remote state backend (storage account + RG) once per subscription, then rewrites the `backend` block in `infra/providers.tf`. |
+| `app-registration.sh` | Creates the Entra ID objects the Admin UI needs (admin security group, BFF API app registration, SPA public client) and prints the four Terraform variable values. |
+| `seed-config.sh` | Builds the authoritative global config document (`id=global`: allowed models · token limits) — prints JSON to show how to seed (for local preview). |
+| `seed-cosmos-jumpbox.sh` | Upserts the global config document directly into Cosmos using the jumpbox managed identity (bash + REST only, no dependencies). |
 | `seed_cosmos.py` | Python version of the same global config seed (`azure-cosmos` + `DefaultAzureCredential`). |
-| `seed-pricing-jumpbox.ps1` | Upserts the per-model price table (`id=pricing`, prompt/completion rates per 1K tokens) into Cosmos from the jumpbox (for cost-based budgeting). |
+| `seed-pricing-jumpbox.sh` | Upserts the per-model price table (`id=pricing`, prompt/completion rates per 1K tokens) into Cosmos from the jumpbox (for cost-based budgeting). |
+
+> A PowerShell variant of the backend bootstrap (`bootstrap-backend.ps1`) is also included. The
+> remaining seed scripts are bash-only and are executed on the (Linux) jumpbox.
 
 ## Prerequisites
 
 - An **Azure subscription** with model quota (Azure OpenAI and, optionally, Azure AI Foundry models).
+- **Resource providers** registered on the subscription. `Microsoft.ApiManagement` in particular is
+  often *not* registered by default and the APIM apply fails without it:
+  ```bash
+  az provider register -n Microsoft.ApiManagement --wait
+  ```
 - **Tools:** [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.7,
   [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), and `az login` to the
   subscription. Container images are built remotely in Azure Container Registry, so **Docker is not required.**
@@ -100,9 +109,9 @@ cost-based budget downgrade — all managed from a self-service Admin UI.
 Export these variables with your own custom values if needed.
 ```bash
 export location=eastus2
-export backend-rg=rg-aigw-tfstate-dev-eastus2
-export storage-prefix=staigwtfstate
-export state-key=ai-gateway-eus2.tfstate
+export backend_rg=rg-aigw-tfstate-dev-eastus2
+export storage_prefix=staigwtfstate
+export state_key=ai-gateway-eus2.tfstate
 ```
 
 ### 1. Bootstrap the Terraform state backend (once per subscription)
@@ -110,12 +119,20 @@ export state-key=ai-gateway-eus2.tfstate
 ```bash
 ./scripts/bootstrap-backend.sh \
   --location $location \
-  --backend-rg $backend-rg \
-  --storage-prefix $storage-prefix \
-  --state-key $state-key
+  --backend-rg $backend_rg \
+  --storage-prefix $storage_prefix \
+  --state-key $state_key
 ```
 
 Creates an eastus2 resource group + storage account for remote state (Entra auth, public blob access blocked).
+
+> **Governed tenants:** some organizations apply a policy that forces
+> `publicNetworkAccess = Disabled` on every storage account, which makes the state container
+> unreachable from your workstation (`terraform init` fails with "blocked by network rules").
+> The script now detects this and stops with guidance. If your tenant honours the
+> `SecurityControl=Ignore` exemption tag, re-run with `--security-control-ignore`. Otherwise run
+> Terraform from the jumpbox, or leave the `backend "azurerm"` block in `infra/providers.tf`
+> commented out to use local state.
 
 ### 2. Set variables
 
@@ -124,6 +141,11 @@ cp infra/terraform.tfvars.example infra/terraform.tfvars
 # Edit infra/terraform.tfvars: prefix, location, owner, cost_center, apim_publisher_*, budget_*.
 # Set apim_public = true before the first apply if the APIM gateway must be internet reachable.
 ```
+
+> `budget_start_date` must be the **first of a month, UTC, and not in the past**. Azure rejects a
+> past start date when the budget is first created, so bump it to the current or next month.
+> `jumpbox_vm_size` also varies by region — the `Standard_B2s_v2` default is not offered in
+> eastus2 (use `Standard_D2s_v7` there).
 
 ### 3. First apply — the gateway core
 
@@ -139,6 +161,10 @@ terraform apply
 
 > APIM Developer/Premium VNet injection can take about 45 minutes on the first apply. This is normal.
 > Choose `apim_public` before the first apply; switching Internal/External later recreates APIM.
+
+> **APIM names are globally unique** (they back `<name>.azure-api.net`), so the service name
+> includes the same random suffix as Key Vault / Cosmos / ACR. Without it, two people deploying
+> this repo with default variables collide with `ServiceAlreadyExists`.
 
 ### 4. Build + push the container images
 
