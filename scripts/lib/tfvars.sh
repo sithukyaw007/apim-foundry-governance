@@ -54,7 +54,11 @@ set_tfvar() {
     END { if (!done) print k " = " v }
   ' "$file" > "$tmp"
 
-  mv "$tmp" "$file"
+  # Write THROUGH the path rather than `mv`-ing over it. terraform.tfvars is often a symlink
+  # into a separate environment-config repo; `mv` would replace that symlink with a regular
+  # file, silently detaching it (and inheriting mktemp's 0600 mode).
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
 
   # Verify rather than trust: a silent no-op here would leave the stack in an unintended state.
   local got
@@ -100,7 +104,9 @@ set_marker() {
     }
     END { if (!done) print p " " n " = " v }
   ' "$file" > "$tmp"
-  mv "$tmp" "$file"
+  # Write through the path, not over it - see the note in set_tfvar about symlinked tfvars.
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
 }
 
 # get_marker <file> <name>
